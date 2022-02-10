@@ -24,17 +24,21 @@ def main():
 
     matrix = calculate_coordinate_transform_matrix(virtual_display, tablet_display)
 
+    apply_matrix_to_device(tablet[0], matrix)
+    print("Done")
+
+
+def apply_matrix_to_device(device_name, matrix):
     print("")
-    print("Mapping tablet: '{}'".format(tablet[0]))
+    print("Mapping tablet: '{}'".format(device_name))
     print("With matrix:", matrix)
 
-    mapping_command = ["xinput", "set-prop", tablet[0], "--type=float", COORDINATE_TRANSFORM_MATRIX_PROPERTY]
+    mapping_command = ["xinput", "set-prop", device_name, "--type=float", COORDINATE_TRANSFORM_MATRIX_PROPERTY]
 
     for entry in matrix:
         mapping_command.append(str(entry))
 
     subprocess.check_output(mapping_command)
-    print("Done")
 
 
 def calculate_coordinate_transform_matrix(total_display, target_display):
