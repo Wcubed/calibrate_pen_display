@@ -1,5 +1,6 @@
 import subprocess
 import re
+from tkinter import *
 
 SUBPROCESS_ENCODING = 'utf-8'
 COORDINATE_TRANSFORM_MATRIX_PROPERTY = "Coordinate Transformation Matrix"
@@ -20,12 +21,30 @@ XRANDR_TOTAL_SCREEN_REGEX = re.compile(r"current (\d+) x (\d+),")
 def main():
     virtual_display = get_virtual_display()
     tablet = get_user_pentabled_selection()
-    tablet_display = get_user_display_selection()
+    target_display = get_user_display_selection()
 
-    matrix = calculate_coordinate_transform_matrix(virtual_display, tablet_display)
+    show_calibration_window(target_display)
+
+    matrix = calculate_coordinate_transform_matrix(virtual_display, target_display)
 
     apply_matrix_to_device(tablet[0], matrix)
     print("Done")
+
+
+def show_calibration_window(target_display):
+    root = Tk()
+    root.geometry("+{}+{}".format(target_display.x, target_display.y))
+    root.attributes("-fullscreen", True)
+
+    root.bind("<Button-1>", calibration_pen_click)
+
+    root.mainloop()
+
+
+def calibration_pen_click(event):
+    x = event.x
+    y = event.y
+    print(x, y)
 
 
 def apply_matrix_to_device(device_name, matrix):
@@ -50,7 +69,7 @@ def calculate_coordinate_transform_matrix(total_display, target_display):
 def get_virtual_display():
     """Returns the dimensions of the display that xrandr creates to stitch all the screens together."""
     xrandr_raw = subprocess.check_output(["xrandr"]).decode(SUBPROCESS_ENCODING)
-    # The virtual screen should always be the 1st one.
+    # For now we assume the virtual screen to always be the 1st one listed.
     virtual_screen_line = xrandr_raw.splitlines()[0]
 
     match = XRANDR_TOTAL_SCREEN_REGEX.search(virtual_screen_line)
