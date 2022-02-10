@@ -11,10 +11,34 @@ XRANDR_MONITOR_REGEX = re.compile(r"(\d+)\/\d+x(\d+)\/\d+([+-]\d+)([+-]\d+) +(\S
 
 
 def main():
-    display_raw_output = subprocess.check_output(['xrandr', '--listmonitors']).splitlines()
+    tablet = get_user_pentabled_selection()
+    display = get_user_display_selection()
+
+
+def get_user_pentabled_selection():
+    xinput_raw = subprocess.check_output(["xinput", "list", "--long"]).decode(SUBPROCESS_ENCODING)
+    entries = xinput_raw.split("↳")
+    pointer_entries = list(filter(lambda val: "slave  pointer" in val, entries))
+
+    for i, entry in enumerate(pointer_entries):
+        name_end_idx = entry.find("id=")
+        name = entry[0:name_end_idx]
+        print("{}: {}".format(i, name))
+
+        button_labels_idx = entry.find("Button labels: ")
+        button_labels_end_idx = entry.find("\n", button_labels_idx)
+        labels = entry[button_labels_idx:button_labels_end_idx]
+        print("          ", labels)
+
+    selection = get_user_input_in_range(range(0, len(pointer_entries)), "Which input device is the pen tablet?")
+    return selection
+
+
+def get_user_display_selection():
+    display_output = subprocess.check_output(["xrandr", "--listmonitors"]).decode(SUBPROCESS_ENCODING).splitlines()
     displays = []
-    for raw_bytes in display_raw_output:
-        match = XRANDR_MONITOR_REGEX.search(raw_bytes.decode(SUBPROCESS_ENCODING))
+    for line in display_output:
+        match = XRANDR_MONITOR_REGEX.search(line)
         if match:
             displays.append(Display(match.group(5), match.group(3), match.group(4), match.group(1), match.group(2)))
 
@@ -23,6 +47,7 @@ def main():
         print("{}: {}".format(i, display))
 
     selection = get_user_input_in_range(range(0, len(displays)), "Which display should the tablet be mapped to?")
+    return selection
 
 
 def get_user_input_in_range(input_range, message):
