@@ -51,6 +51,7 @@ class CalibrationWindow:
         self.target_display = target_display
 
         self.root = Tk()
+        self.root.config(cursor="none")
         self.root.geometry("+{}+{}".format(target_display.x, target_display.y))
         self.root.attributes("-fullscreen", True)
 
