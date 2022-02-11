@@ -22,7 +22,7 @@ XRANDR_TOTAL_SCREEN_REGEX = re.compile(r"current (\d+) x (\d+),")
 
 def main():
     virtual_display = get_virtual_display()
-    tablet = get_user_pentabled_selection()
+    tablet = get_user_pentablet_selection()
     target_display = get_user_display_selection()
 
     # The pen first needs to be calibrated loosely to the screen, otherwise we aren't going to pick up any clicks.
@@ -35,10 +35,10 @@ def main():
     calibration.run()
 
     fine_matrix = calculate_fine_coordinate_transform_matrix(calibration.calibration_points, calibration.clicked_points)
-    print(screen_matrix)
-    print(fine_matrix)
+    # xinput expects the translation to be scaled so that the full virtual display is 1.
+    fine_matrix[0][2] /= virtual_display.width
+    fine_matrix[1][2] /= virtual_display.height
 
-    # TODO: This doesn't work correctly yet.
     total_matrix = screen_matrix.dot(fine_matrix)
     print(total_matrix)
 
@@ -60,13 +60,13 @@ class CalibrationWindow:
         self.canvas = Canvas(self.root)
         self.canvas.pack(fill=BOTH, expand=True)
 
-        x_step = target_display.width * 0.25
-        y_step = target_display.height * 0.25
+        x_inset = target_display.width * 0.1
+        y_inset = target_display.height * 0.1
         # Ordering of points is clockwise starting from the upper-left.
-        self.calibration_points = np.float32([(x_step, y_step),
-                                              (target_display.width - x_step, y_step),
-                                              (target_display.width - x_step, target_display.height - y_step),
-                                              (x_step, target_display.height - y_step)])
+        self.calibration_points = np.float32([(x_inset, y_inset),
+                                              (target_display.width - x_inset, y_inset),
+                                              (target_display.width - x_inset, target_display.height - y_inset),
+                                              (x_inset, target_display.height - y_inset)])
         self.clicked_points = np.zeros((4, 2), dtype="float32")
         self.current_point = 0
 
@@ -91,7 +91,7 @@ class CalibrationWindow:
         self.canvas.create_line(x, y - (size + inner_size), x, y - inner_size, fill=color, width=width)
         self.canvas.create_line(x, y + inner_size, x, y + inner_size + size, fill=color, width=width)
 
-    def exit_by_escape(self):
+    def exit_by_escape(self, event):
         self.root.destroy()
         print("User exited.")
         exit(1)
@@ -132,7 +132,7 @@ def calculate_screen_transformation(virtual_display, target_display):
 
 
 def calculate_fine_coordinate_transform_matrix(calibration_points, actual_points):
-    return cv2.getPerspectiveTransform(calibration_points, actual_points)
+    return cv2.getPerspectiveTransform(actual_points, calibration_points)
 
 
 def get_virtual_display():
@@ -149,7 +149,7 @@ def get_virtual_display():
         exit(1)
 
 
-def get_user_pentabled_selection():
+def get_user_pentablet_selection():
     xinput_raw = subprocess.check_output(["xinput", "list", "--long"]).decode(SUBPROCESS_ENCODING)
     entries = xinput_raw.split("↳")
     # Filter only pointer devices
