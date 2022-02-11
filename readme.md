@@ -12,8 +12,10 @@ The output should list several displays, and a screen with a size larger than al
 `Screen 0: minimum 8 x 8, current 5360 x 2520, maximum 32767 x 32767`. (You only need to check this once)
 - Connect your drawing tablet, and run `python3 calibrate.py`.
 - The script first asks which input device is your tablet. There might be multiple devices listed which are ambiguous.
-For example, in my case it lists `UGTABLET 15.6 inch PenDisplay Mouse` as well as `UGTABLET 15.6 inch PenDisplay Pen (0)`.
-It should not be harmful to try them one by one (in my case it was the entry with `Pen`), as the script does nothing permanent.
+The listed devices (and which one to choose) might even change depending on whether you have the vendor's driver running or not.
+For example, in my case it lists `UGTABLET 15.6 inch PenDisplay Mouse` and `UGTABLET 15.6 inch PenDisplay Pen (0)` when the XP pen application is not running.
+But it _additionally_ lists `XP-PEN MOUSE` and `XP-PEN STYLUS Pen (0)` when the application is running.
+It should not be harmful to try them one by one, as the script does nothing permanent.
 - Next the script asks which display is the one on the drawing tablet. Again, don't worry about selecting the wrong one,
 it won't do any harm and will become apparent in the next step.
 - The selected screen should go white, and a cross-hair appears. Click the cross-hairs with the drawing pen as
