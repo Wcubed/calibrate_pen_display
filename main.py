@@ -23,28 +23,71 @@ def main():
     tablet = get_user_pentabled_selection()
     target_display = get_user_display_selection()
 
-    show_calibration_window(target_display)
+    calibration = CalibrationWindow(target_display)
+    calibration.run()
 
-    matrix = calculate_coordinate_transform_matrix(virtual_display, target_display)
-
-    apply_matrix_to_device(tablet[0], matrix)
+    # matrix = calculate_coordinate_transform_matrix(virtual_display, target_display)
+    # apply_matrix_to_device(tablet[0], matrix)
     print("Done")
 
 
-def show_calibration_window(target_display):
-    root = Tk()
-    root.geometry("+{}+{}".format(target_display.x, target_display.y))
-    root.attributes("-fullscreen", True)
+class CalibrationWindow:
+    def __init__(self, target_display):
+        self.target_display = target_display
 
-    root.bind("<Button-1>", calibration_pen_click)
+        self.root = Tk()
+        self.root.geometry("+{}+{}".format(target_display.x, target_display.y))
+        self.root.attributes("-fullscreen", True)
 
-    root.mainloop()
+        self.root.bind("<Button-1>", self.calibration_pen_click)
+        self.root.bind("<Escape>", self.exit_by_escape)
 
+        self.canvas = Canvas(self.root)
+        self.canvas.pack(fill=BOTH, expand=True)
 
-def calibration_pen_click(event):
-    x = event.x
-    y = event.y
-    print(x, y)
+        x_step = target_display.width * 0.25
+        y_step = target_display.height * 0.25
+        self.calibration_points = [(x_step, y_step),
+                                   (target_display.width - x_step, y_step),
+                                   (x_step, target_display.height - y_step),
+                                   (target_display.width - x_step, target_display.height - y_step)]
+        self.clicked_points = []
+
+    def run(self):
+        self.draw_next_crosshair()
+        self.root.mainloop()
+
+    def draw_next_crosshair(self):
+        self.canvas.delete("all")
+
+        point = self.calibration_points[len(self.clicked_points)]
+        self.draw_crosshair(point[0], point[1])
+
+    def draw_crosshair(self, x, y):
+        size = 20
+        inner_size = 3
+        width = 1
+        self.canvas.create_line(x - (size + inner_size), y, x - inner_size, y, fill="green", width=width)
+        self.canvas.create_line(x + inner_size, y, x + inner_size + size, y, fill="green", width=width)
+        self.canvas.create_line(x, y - (size + inner_size), x, y - inner_size, fill="green", width=width)
+        self.canvas.create_line(x, y + inner_size, x, y + inner_size + size, fill="green", width=width)
+
+    def exit_by_escape(self):
+        self.root.destroy()
+        print("User exited, no calibration performed.")
+        exit(1)
+
+    def calibration_pen_click(self, event):
+        x = event.x
+        y = event.y
+        print(x, y)
+        self.clicked_points.append((x, y))
+
+        if len(self.clicked_points) >= len(self.calibration_points):
+            # All calibration points are done. End the loop.
+            self.root.destroy()
+        else:
+            self.draw_next_crosshair()
 
 
 def apply_matrix_to_device(device_name, matrix):
