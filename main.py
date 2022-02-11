@@ -1,6 +1,8 @@
 import subprocess
 import re
 from tkinter import *
+import cv2
+import numpy as np
 
 SUBPROCESS_ENCODING = 'utf-8'
 COORDINATE_TRANSFORM_MATRIX_PROPERTY = "Coordinate Transformation Matrix"
@@ -23,11 +25,24 @@ def main():
     tablet = get_user_pentabled_selection()
     target_display = get_user_display_selection()
 
+    # The pen first needs to be calibrated loosely to the screen, otherwise we aren't going to pick up any clicks.
+    print("Mapping tablet to selected display.")
+    screen_matrix = calculate_screen_transformation(virtual_display, target_display)
+    apply_matrix_to_device(tablet[0], screen_matrix)
+
+    print("Starting fine calibration.")
     calibration = CalibrationWindow(target_display)
     calibration.run()
 
-    # matrix = calculate_coordinate_transform_matrix(virtual_display, target_display)
-    # apply_matrix_to_device(tablet[0], matrix)
+    fine_matrix = calculate_fine_coordinate_transform_matrix(calibration.calibration_points, calibration.clicked_points)
+    print(screen_matrix)
+    print(fine_matrix)
+
+    # TODO: This doesn't work correctly yet.
+    total_matrix = screen_matrix.dot(fine_matrix)
+    print(total_matrix)
+
+    apply_matrix_to_device(tablet[0], total_matrix)
     print("Done")
 
 
@@ -47,11 +62,13 @@ class CalibrationWindow:
 
         x_step = target_display.width * 0.25
         y_step = target_display.height * 0.25
-        self.calibration_points = [(x_step, y_step),
-                                   (target_display.width - x_step, y_step),
-                                   (x_step, target_display.height - y_step),
-                                   (target_display.width - x_step, target_display.height - y_step)]
-        self.clicked_points = []
+        # Ordering of points is clockwise starting from the upper-left.
+        self.calibration_points = np.float32([(x_step, y_step),
+                                              (target_display.width - x_step, y_step),
+                                              (target_display.width - x_step, target_display.height - y_step),
+                                              (x_step, target_display.height - y_step)])
+        self.clicked_points = np.zeros((4, 2), dtype="float32")
+        self.current_point = 0
 
     def run(self):
         self.draw_next_crosshair()
@@ -60,30 +77,36 @@ class CalibrationWindow:
     def draw_next_crosshair(self):
         self.canvas.delete("all")
 
-        point = self.calibration_points[len(self.clicked_points)]
+        point = self.calibration_points[self.current_point]
         self.draw_crosshair(point[0], point[1])
 
     def draw_crosshair(self, x, y):
         size = 20
         inner_size = 3
         width = 1
-        self.canvas.create_line(x - (size + inner_size), y, x - inner_size, y, fill="green", width=width)
-        self.canvas.create_line(x + inner_size, y, x + inner_size + size, y, fill="green", width=width)
-        self.canvas.create_line(x, y - (size + inner_size), x, y - inner_size, fill="green", width=width)
-        self.canvas.create_line(x, y + inner_size, x, y + inner_size + size, fill="green", width=width)
+        color = "black"
+
+        self.canvas.create_line(x - (size + inner_size), y, x - inner_size, y, fill=color, width=width)
+        self.canvas.create_line(x + inner_size, y, x + inner_size + size, y, fill=color, width=width)
+        self.canvas.create_line(x, y - (size + inner_size), x, y - inner_size, fill=color, width=width)
+        self.canvas.create_line(x, y + inner_size, x, y + inner_size + size, fill=color, width=width)
 
     def exit_by_escape(self):
         self.root.destroy()
-        print("User exited, no calibration performed.")
+        print("User exited.")
         exit(1)
 
     def calibration_pen_click(self, event):
         x = event.x
         y = event.y
-        print(x, y)
-        self.clicked_points.append((x, y))
 
-        if len(self.clicked_points) >= len(self.calibration_points):
+        target_point = self.calibration_points[self.current_point]
+        print("Point {}: ({}, {}) -> ({}, {})".format(self.current_point, x, y, target_point[0], target_point[1]))
+
+        self.clicked_points[self.current_point] = (x, y)
+        self.current_point += 1
+
+        if self.current_point >= len(self.calibration_points):
             # All calibration points are done. End the loop.
             self.root.destroy()
         else:
@@ -91,22 +114,25 @@ class CalibrationWindow:
 
 
 def apply_matrix_to_device(device_name, matrix):
-    print("")
-    print("Mapping tablet: '{}'".format(device_name))
-    print("With matrix:", matrix)
-
     mapping_command = ["xinput", "set-prop", device_name, "--type=float", COORDINATE_TRANSFORM_MATRIX_PROPERTY]
 
-    for entry in matrix:
-        mapping_command.append(str(entry))
+    for row in matrix:
+        for entry in row:
+            mapping_command.append(str(entry))
+
+    print(mapping_command)
 
     subprocess.check_output(mapping_command)
 
 
-def calculate_coordinate_transform_matrix(total_display, target_display):
-    return [target_display.width / total_display.width, 0, target_display.x / total_display.width,
-            0, target_display.height / total_display.height, target_display.y / total_display.height,
-            0, 0, 1]
+def calculate_screen_transformation(virtual_display, target_display):
+    return np.float32([(target_display.width / virtual_display.width, 0, target_display.x / virtual_display.width),
+                       (0, target_display.height / virtual_display.height, target_display.y / virtual_display.height),
+                       (0, 0, 1)])
+
+
+def calculate_fine_coordinate_transform_matrix(calibration_points, actual_points):
+    return cv2.getPerspectiveTransform(calibration_points, actual_points)
 
 
 def get_virtual_display():

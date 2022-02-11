@@ -6,4 +6,7 @@ and the [Calibrating Touchscreens page on the arch wiki](https://wiki.archlinux.
 
 This is a nicely overengineerd script that automates the calibration.
 
-Assumes you have the commands `xrandr` and `xinput` available.
+Dependencies:
+- The commands `xrandr` and `xinput`.
+- The tk python library
+- The opencv-python library
