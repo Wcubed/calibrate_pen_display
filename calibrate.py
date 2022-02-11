@@ -42,6 +42,9 @@ def main():
     total_matrix = screen_matrix.dot(fine_matrix)
 
     used_command = apply_matrix_to_device(tablet, total_matrix)
+    # When executing in a terminal, the device, and property name need quotes.
+    used_command[2] = "'" + used_command[2] + "'"
+    used_command[4] = "'" + used_command[4] + "'"
     print("If you want to re-apply this calibration later, use the following command:")
     print(" ".join(used_command))
 
