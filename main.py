@@ -57,7 +57,7 @@ class CalibrationWindow:
         self.root.bind("<Button-1>", self.calibration_pen_click)
         self.root.bind("<Escape>", self.exit_by_escape)
 
-        self.canvas = Canvas(self.root)
+        self.canvas = Canvas(self.root, highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
 
         x_inset = target_display.width * 0.1
@@ -82,13 +82,13 @@ class CalibrationWindow:
 
     def draw_crosshair(self, x, y):
         size = 20
-        inner_size = 3
+        inner_size = 1
         width = 1
         color = "black"
 
-        self.canvas.create_line(x - (size + inner_size), y, x - inner_size, y, fill=color, width=width)
+        self.canvas.create_line(x - (size + inner_size), y, x - inner_size + 1, y, fill=color, width=width)
         self.canvas.create_line(x + inner_size, y, x + inner_size + size, y, fill=color, width=width)
-        self.canvas.create_line(x, y - (size + inner_size), x, y - inner_size, fill=color, width=width)
+        self.canvas.create_line(x, y - (size + inner_size), x, y - inner_size + 1, fill=color, width=width)
         self.canvas.create_line(x, y + inner_size, x, y + inner_size + size, fill=color, width=width)
 
     def exit_by_escape(self, event):
