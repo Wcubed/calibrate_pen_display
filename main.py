@@ -28,7 +28,7 @@ def main():
     # The pen first needs to be calibrated loosely to the screen, otherwise we aren't going to pick up any clicks.
     print("Mapping tablet to selected display.")
     screen_matrix = calculate_screen_transformation(virtual_display, target_display)
-    apply_matrix_to_device(tablet[0], screen_matrix)
+    apply_matrix_to_device(tablet, screen_matrix)
 
     print("Starting fine calibration.")
     calibration = CalibrationWindow(target_display)
@@ -40,9 +40,11 @@ def main():
     fine_matrix[1][2] /= virtual_display.height
 
     total_matrix = screen_matrix.dot(fine_matrix)
-    print(total_matrix)
 
-    apply_matrix_to_device(tablet[0], total_matrix)
+    used_command = apply_matrix_to_device(tablet, total_matrix)
+    print("If you want to re-apply this calibration later, use the following command:")
+    print(" ".join(used_command))
+
     print("Done")
 
 
@@ -77,6 +79,9 @@ class CalibrationWindow:
 
     def draw_next_crosshair(self):
         self.canvas.delete("all")
+        self.canvas.create_text(self.target_display.width / 2, self.target_display.height / 2, anchor=CENTER,
+                                font=("Helvetica", "15"),
+                                text="Click the cross-hairs with the pen tip as accurately as possible")
 
         point = self.calibration_points[self.current_point]
         self.draw_crosshair(point[0], point[1])
@@ -121,9 +126,9 @@ def apply_matrix_to_device(device_name, matrix):
         for entry in row:
             mapping_command.append(str(entry))
 
-    print(mapping_command)
-
     subprocess.check_output(mapping_command)
+
+    return mapping_command
 
 
 def calculate_screen_transformation(virtual_display, target_display):
@@ -151,7 +156,7 @@ def get_virtual_display():
 
 
 def get_user_pentablet_selection():
-    xinput_raw = subprocess.check_output(["xinput", "list", "--long"]).decode(SUBPROCESS_ENCODING)
+    xinput_raw = subprocess.check_output(["xinput", "list", "--short"]).decode(SUBPROCESS_ENCODING)
     entries = xinput_raw.split("↳")
     # Filter only pointer devices
     pointer_entries = list(filter(lambda val: "slave  pointer" in val, entries))
@@ -168,18 +173,11 @@ def get_user_pentablet_selection():
         device_id = entry[id_start_idx:id_end_idx]
 
         # No use presenting the user a device that doesn't have the necessary matrix.
-        if not input_device_has_coordinate_matrix(device_id):
-            continue
-
-        button_labels_idx = entry.find("Button labels: ")
-        button_labels_end_idx = entry.find("\n", button_labels_idx)
-        labels = entry[button_labels_idx:button_labels_end_idx]
-
-        pointers_with_matrices.append((name, labels))
+        if input_device_has_coordinate_matrix(device_id):
+            pointers_with_matrices.append(name)
 
     for i, device in enumerate(pointers_with_matrices):
-        print("{}: {}".format(i, device[0]))
-        print("      ", device[1])
+        print("{}: {}".format(i, device))
 
     selection = get_user_input_in_range(range(0, len(pointers_with_matrices)), "Which input device is the pen tablet?")
     return pointers_with_matrices[selection]
