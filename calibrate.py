@@ -34,10 +34,9 @@ def main():
     calibration = CalibrationWindow(target_display)
     calibration.run()
 
-    fine_matrix = calculate_fine_coordinate_transform_matrix(calibration.calibration_points, calibration.clicked_points)
-    # xinput expects the translation to be scaled so that the full virtual display is 1.
-    fine_matrix[0][2] /= virtual_display.width
-    fine_matrix[1][2] /= virtual_display.height
+    fine_matrix = calculate_fine_coordinate_transform_matrix(calibration.calibration_points,
+                                                             calibration.clicked_points,
+                                                             virtual_display)
 
     total_matrix = screen_matrix.dot(fine_matrix)
 
@@ -135,18 +134,34 @@ def apply_matrix_to_device(device_name, matrix):
 
 
 def calculate_screen_transformation(virtual_display, target_display):
-    return np.float32([(target_display.width / virtual_display.width, 0, target_display.x / virtual_display.width),
-                       (0, target_display.height / virtual_display.height, target_display.y / virtual_display.height),
-                       (0, 0, 1)])
+    virtual_display_corners = np.float32([(0, 0),
+                                          (virtual_display.width, 0),
+                                          (virtual_display.width, virtual_display.height),
+                                          (0, virtual_display.height)])
+    target_display_corners = np.float32([(target_display.x, target_display.y),
+                                         (target_display.x + target_display.width, target_display.y),
+                                         (target_display.x + target_display.width,
+                                          target_display.y + target_display.height),
+                                         (target_display.x, target_display.y + target_display.height)])
+    matrix = cv2.getPerspectiveTransform(virtual_display_corners, target_display_corners)
+    return scale_matrix_translation_by_virtual_display_size(matrix, virtual_display)
 
 
-def calculate_fine_coordinate_transform_matrix(calibration_points, actual_points):
-    return cv2.getPerspectiveTransform(actual_points, calibration_points)
+def calculate_fine_coordinate_transform_matrix(calibration_points, actual_points, virtual_display):
+    matrix = cv2.getPerspectiveTransform(actual_points, calibration_points)
+    return scale_matrix_translation_by_virtual_display_size(matrix, virtual_display)
+
+
+def scale_matrix_translation_by_virtual_display_size(matrix, virtual_display):
+    """xinput expects the translation to be scaled so that the full virtual display is equal to 1."""
+    matrix[0][2] /= virtual_display.width
+    matrix[1][2] /= virtual_display.height
+    return matrix
 
 
 def get_virtual_display():
     """Returns the dimensions of the display that xrandr creates to stitch all the screens together."""
-    xrandr_raw = subprocess.check_output(["xrandr"]).decode(SUBPROCESS_ENCODING)
+    xrandr_raw = subprocess.check_output(["xrandr", "-q"]).decode(SUBPROCESS_ENCODING)
     # For now we assume the virtual screen to always be the 1st one listed.
     virtual_screen_line = xrandr_raw.splitlines()[0]
 
