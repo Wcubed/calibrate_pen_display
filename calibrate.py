@@ -62,7 +62,7 @@ class CalibrationWindow:
         self.target_display = target_display
 
         self.root = Tk()
-        # self.root.config(cursor="none")
+        self.root.config(cursor="none")
         self.root.geometry("+{}+{}".format(target_display.x, target_display.y))
         self.root.attributes("-fullscreen", True)
 
@@ -160,7 +160,7 @@ def calculate_fine_coordinate_transform_matrix(calibration_points, clicked_point
     # to click precisely in the targets.
     target_points = calibration_points + (calibration_points - clicked_points)
 
-    target_points_on_virtual_display = target_points.copy()
+    target_points_on_virtual_display = move_points_to_orientation(target_points, target_display.orientation)
 
     # Move the points so that they are actually located on the target screen,
     # instead of on the canvas.
@@ -186,8 +186,12 @@ def scale_points_to_virtual_display_unit_size(matrix, virtual_display):
 
 
 def move_points_to_orientation(points, orientation):
-    if orientation == Orientation.INVERTED:
+    if orientation == Orientation.LEFT:
+        points = np.roll(points, 3, axis=0)
+    elif orientation == Orientation.INVERTED:
         points = np.roll(points, 2, axis=0)
+    elif orientation == Orientation.RIGHT:
+        points = np.roll(points, 1, axis=0)
 
     return points
 
