@@ -148,52 +148,71 @@ def calculate_screen_transformation(virtual_display, target_display):
     virtual_display_corners = scale_points_to_virtual_display_unit_size(virtual_display_corners, virtual_display)
     target_display_corners = scale_points_to_virtual_display_unit_size(target_display_corners, virtual_display)
 
-    target_display_corners = move_points_to_orientation(target_display_corners, target_display.orientation)
+    target_display_corners = move_points_from_normal_to_orientation(target_display_corners, target_display.orientation)
 
     matrix = cv2.getPerspectiveTransform(virtual_display_corners, target_display_corners)
     return matrix
 
 
 def calculate_fine_coordinate_transform_matrix(calibration_points, clicked_points, virtual_display, target_display):
-    # The clicked points give us the positions where the pen currently _thinks_ it is when clicking the target.
-    # To calibrate, we need to calculate the positions where the pen _should have been_
-    # to click precisely in the targets.
-    target_points = calibration_points + (calibration_points - clicked_points)
-
-    target_points_on_virtual_display = move_points_to_orientation(target_points, target_display.orientation)
+    target_points = move_points_from_normal_to_orientation(calibration_points, target_display.orientation)
 
     # Move the points so that they are actually located on the target screen,
     # instead of on the canvas.
-    target_points_on_virtual_display[:, 0] = target_points_on_virtual_display[:, 0] + target_display.x
-    target_points_on_virtual_display[:, 1] = target_points_on_virtual_display[:, 1] + target_display.y
+    target_points[:, 0] = target_points[:, 0] + target_display.x
+    target_points[:, 1] = target_points[:, 1] + target_display.y
+
+    # TODO: Something here does not yet work. The final calibration is not rotated correctly.
+    #       But rotating this offset before applying it to the virtual display calibration points doesn't work either.
+    offset = clicked_points - calibration_points
+
+    # Scale offset to size of virtual display.
+    offset[:, 0] = offset[:, 0] * (virtual_display.width / target_display.width)
+    offset[:, 1] = offset[:, 1] * (virtual_display.height / target_display.height)
+    print(offset)
 
     calibration_points_on_virtual_display = get_fine_calibration_points(virtual_display)
-    calibration_points_on_virtual_display = scale_points_to_virtual_display_unit_size(
-        calibration_points_on_virtual_display, virtual_display)
-    target_points_on_virtual_display = scale_points_to_virtual_display_unit_size(
-        target_points_on_virtual_display, virtual_display)
+    # Find out where the pen _should_ have been on the virtual display.
+    calibration_points_on_virtual_display += offset
 
-    fine_adjustment_matrix = cv2.getPerspectiveTransform(calibration_points_on_virtual_display,
-                                                         target_points_on_virtual_display)
+    unit_calibration_points = scale_points_to_virtual_display_unit_size(
+        calibration_points_on_virtual_display, virtual_display)
+    unit_target_points = scale_points_to_virtual_display_unit_size(
+        target_points, virtual_display)
+
+    fine_adjustment_matrix = cv2.getPerspectiveTransform(unit_calibration_points,
+                                                         unit_target_points)
     return fine_adjustment_matrix
 
 
 def scale_points_to_virtual_display_unit_size(matrix, virtual_display):
     """xinput expects the translation to be scaled so that the full virtual display's dimensions are equal to 1."""
-    matrix[:, 0] = matrix[:, 0] / virtual_display.width
-    matrix[:, 1] = matrix[:, 1] / virtual_display.height
-    return matrix
+    result = matrix.copy()
+    result[:, 0] = result[:, 0] / virtual_display.width
+    result[:, 1] = result[:, 1] / virtual_display.height
+    return result
 
 
-def move_points_to_orientation(points, orientation):
+def move_points_from_normal_to_orientation(points, orientation):
+    result = points.copy()
     if orientation == Orientation.LEFT:
-        points = np.roll(points, 3, axis=0)
+        result = np.roll(result, 3, axis=0)
     elif orientation == Orientation.INVERTED:
-        points = np.roll(points, 2, axis=0)
+        result = np.roll(result, 2, axis=0)
     elif orientation == Orientation.RIGHT:
-        points = np.roll(points, 1, axis=0)
+        result = np.roll(result, 1, axis=0)
 
-    return points
+    return result
+
+
+def move_points_from_orientation_to_normal(points, orientation):
+    inverse_operation = orientation
+    if orientation == Orientation.LEFT:
+        inverse_operation = Orientation.RIGHT
+    elif orientation == Orientation.RIGHT:
+        inverse_operation = Orientation.LEFT
+
+    return move_points_from_normal_to_orientation(points, inverse_operation)
 
 
 def get_fine_calibration_points(display):
@@ -301,7 +320,6 @@ class Orientation(Enum):
 
     def __str__(self):
         return self.name
-
 
 class Display:
     def __init__(self, name, x, y, width, height, orientation=Orientation.NORMAL):
