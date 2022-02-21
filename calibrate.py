@@ -23,6 +23,10 @@ XRANDR_MONITOR_REGEX = re.compile(r"^(?P<name>[\w\d-]+) connected(?: primary)? (
 # into: {width: 5360, height: 2520}
 XRANDR_TOTAL_SCREEN_REGEX = re.compile(r"current (?P<width>\d+) x (?P<height>\d+),")
 
+# How far are the calibration points away from the screen edges.
+# Width and height are multiplied by this to get the actual pixel locations.
+CALIBRATION_POINT_INSET_FRACTION = 0.1
+
 
 def main():
     virtual_display = get_virtual_display()
@@ -31,8 +35,8 @@ def main():
 
     # The pen first needs to be calibrated loosely to the screen, otherwise we aren't going to pick up any clicks.
     print("Mapping tablet to selected display.")
-    screen_matrix = calculate_screen_transformation(virtual_display, target_display)
-    apply_matrix_to_device(tablet, screen_matrix)
+    temporary_matrix = calculate_screen_transformation(virtual_display, target_display)
+    apply_matrix_to_device(tablet, temporary_matrix)
 
     print("Starting fine calibration.")
     calibration = CalibrationWindow(target_display)
@@ -40,12 +44,11 @@ def main():
 
     fine_matrix = calculate_fine_coordinate_transform_matrix(calibration.calibration_points,
                                                              calibration.clicked_points,
-                                                             virtual_display)
+                                                             virtual_display,
+                                                             target_display)
 
-    total_matrix = screen_matrix.dot(fine_matrix)
-
-    used_command = apply_matrix_to_device(tablet, total_matrix)
-    # When executing in a terminal, the device, and property name need quotes.
+    used_command = apply_matrix_to_device(tablet, fine_matrix)
+    # When executing the command in a terminal, the device, and property name need quotes.
     used_command[2] = "'" + used_command[2] + "'"
     used_command[4] = "'" + used_command[4] + "'"
     print("If you want to re-apply this calibration later, use the following command:")
@@ -59,7 +62,7 @@ class CalibrationWindow:
         self.target_display = target_display
 
         self.root = Tk()
-        self.root.config(cursor="none")
+        # self.root.config(cursor="none")
         self.root.geometry("+{}+{}".format(target_display.x, target_display.y))
         self.root.attributes("-fullscreen", True)
 
@@ -69,13 +72,7 @@ class CalibrationWindow:
         self.canvas = Canvas(self.root, highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
 
-        x_inset = target_display.width * 0.1
-        y_inset = target_display.height * 0.1
-        # Ordering of points is clockwise starting from the upper-left.
-        self.calibration_points = np.float32([(x_inset, y_inset),
-                                              (target_display.width - x_inset, y_inset),
-                                              (target_display.width - x_inset, target_display.height - y_inset),
-                                              (x_inset, target_display.height - y_inset)])
+        self.calibration_points = get_fine_calibration_points(target_display)
         self.clicked_points = np.zeros((4, 2), dtype="float32")
         self.current_point = 0
 
@@ -147,26 +144,68 @@ def calculate_screen_transformation(virtual_display, target_display):
                                          (target_display.x + target_display.width,
                                           target_display.y + target_display.height),
                                          (target_display.x, target_display.y + target_display.height)])
+
+    virtual_display_corners = scale_points_to_virtual_display_unit_size(virtual_display_corners, virtual_display)
+    target_display_corners = scale_points_to_virtual_display_unit_size(target_display_corners, virtual_display)
+
+    target_display_corners = move_points_to_orientation(target_display_corners, target_display.orientation)
+
     matrix = cv2.getPerspectiveTransform(virtual_display_corners, target_display_corners)
-    return scale_matrix_translation_by_virtual_display_size(matrix, virtual_display)
-
-
-def calculate_fine_coordinate_transform_matrix(calibration_points, actual_points, virtual_display):
-    matrix = cv2.getPerspectiveTransform(actual_points, calibration_points)
-    return scale_matrix_translation_by_virtual_display_size(matrix, virtual_display)
-
-
-def scale_matrix_translation_by_virtual_display_size(matrix, virtual_display):
-    """xinput expects the translation to be scaled so that the full virtual display is equal to 1."""
-    matrix[0][2] /= virtual_display.width
-    matrix[1][2] /= virtual_display.height
     return matrix
+
+
+def calculate_fine_coordinate_transform_matrix(calibration_points, clicked_points, virtual_display, target_display):
+    # The clicked points give us the positions where the pen currently _thinks_ it is when clicking the target.
+    # To calibrate, we need to calculate the positions where the pen _should have been_
+    # to click precisely in the targets.
+    target_points = calibration_points + (calibration_points - clicked_points)
+
+    target_points_on_virtual_display = target_points.copy()
+
+    # Move the points so that they are actually located on the target screen,
+    # instead of on the canvas.
+    target_points_on_virtual_display[:, 0] = target_points_on_virtual_display[:, 0] + target_display.x
+    target_points_on_virtual_display[:, 1] = target_points_on_virtual_display[:, 1] + target_display.y
+
+    calibration_points_on_virtual_display = get_fine_calibration_points(virtual_display)
+    calibration_points_on_virtual_display = scale_points_to_virtual_display_unit_size(
+        calibration_points_on_virtual_display, virtual_display)
+    target_points_on_virtual_display = scale_points_to_virtual_display_unit_size(
+        target_points_on_virtual_display, virtual_display)
+
+    fine_adjustment_matrix = cv2.getPerspectiveTransform(calibration_points_on_virtual_display,
+                                                         target_points_on_virtual_display)
+    return fine_adjustment_matrix
+
+
+def scale_points_to_virtual_display_unit_size(matrix, virtual_display):
+    """xinput expects the translation to be scaled so that the full virtual display's dimensions are equal to 1."""
+    matrix[:, 0] = matrix[:, 0] / virtual_display.width
+    matrix[:, 1] = matrix[:, 1] / virtual_display.height
+    return matrix
+
+
+def move_points_to_orientation(points, orientation):
+    if orientation == Orientation.INVERTED:
+        points = np.roll(points, 2, axis=0)
+
+    return points
+
+
+def get_fine_calibration_points(display):
+    x_inset = display.width * CALIBRATION_POINT_INSET_FRACTION
+    y_inset = display.height * CALIBRATION_POINT_INSET_FRACTION
+    # Ordering of points is clockwise starting from the upper-left.
+    return np.float32([(x_inset, y_inset),
+                       (display.width - x_inset, y_inset),
+                       (display.width - x_inset, display.height - y_inset),
+                       (x_inset, display.height - y_inset)])
 
 
 def get_virtual_display():
     """Returns the dimensions of the display that xrandr creates to stitch all the screens together."""
     xrandr_raw = subprocess.check_output(["xrandr", "-q"]).decode(SUBPROCESS_ENCODING)
-    # For now we assume the virtual screen to always be the 1st one listed.
+    # For now, we assume the virtual screen to always be the 1st one listed.
     virtual_screen_line = xrandr_raw.splitlines()[0]
 
     match = XRANDR_TOTAL_SCREEN_REGEX.search(virtual_screen_line)
