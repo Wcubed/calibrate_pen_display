@@ -1,5 +1,6 @@
 import subprocess
 import re
+from enum import Enum
 from tkinter import *
 import cv2
 import numpy as np
@@ -7,17 +8,20 @@ import numpy as np
 SUBPROCESS_ENCODING = 'utf-8'
 COORDINATE_TRANSFORM_MATRIX_PROPERTY = "Coordinate Transformation Matrix"
 
-# Parses lines like:
-# 0: +*HDMI-0 3440/800x1440/335+1920+0  HDMI-0
-# into: 3440, 1440, 1920, 0, HDMI-0
-# which is: width, height, x-offset, y-offset, name
-XRANDR_MONITOR_REGEX = re.compile(r"(\d+)\/\d+x(\d+)\/\d+([+-]\d+)([+-]\d+) +(\S+)$")
+# Extracts connected monitors and their orientation from the output of `xrandr --query`
+# We cannot use `xrandr --listmonitors` because that doesn't show the orientation.
+# and `xrandr --listmonitors --verbose` just dumps way too much info.
+# This: `DP-0 connected 1920x1080+5360+0 right (normal left inverted right x axis y axis) 344mm x 193mm`
+# Becomes: {name: "DP-0", width: 1920, height: 1080, x: 5360, y: 0, orientation: "right"}
+# A screen with "normal" orientation might simply not report an orientation,
+# resulting in an empty string for that group.
+XRANDR_MONITOR_REGEX = re.compile(r"^(?P<name>[\w\d-]+) connected(?: primary)? (?P<w>\d+)x(?P<h>\d+)\+(?P<x>\d+)"
+                                  r"\+(?P<y>\d+) ?(?P<orientation>\w*) \(")
 
 # Parses a line like:
 # Screen 0: minimum 8 x 8, current 5360 x 2520, maximum 32767 x 32767
-# into: 5360, 2520
-# which is: width, height
-XRANDR_TOTAL_SCREEN_REGEX = re.compile(r"current (\d+) x (\d+),")
+# into: {width: 5360, height: 2520}
+XRANDR_TOTAL_SCREEN_REGEX = re.compile(r"current (?P<width>\d+) x (?P<height>\d+),")
 
 
 def main():
@@ -167,7 +171,7 @@ def get_virtual_display():
 
     match = XRANDR_TOTAL_SCREEN_REGEX.search(virtual_screen_line)
     if match:
-        return Display("Screen 0", 0, 0, int(match.group(1)), int(match.group(2)))
+        return Display("Screen 0", 0, 0, int(match.group("width")), int(match.group("height")))
     else:
         print("Error, could not find virtual display dimensions")
         exit(1)
@@ -207,16 +211,20 @@ def input_device_has_coordinate_matrix(device_id):
 
 
 def get_user_display_selection():
-    display_output = subprocess.check_output(["xrandr", "--listmonitors"]).decode(SUBPROCESS_ENCODING).splitlines()
+    display_output = subprocess.check_output(["xrandr", "-q"]).decode(SUBPROCESS_ENCODING).splitlines()
     displays = []
     for line in display_output:
         match = XRANDR_MONITOR_REGEX.search(line)
         if match:
-            displays.append(Display(match.group(5),
-                                    int(match.group(3)),
-                                    int(match.group(4)),
-                                    int(match.group(1)),
-                                    int(match.group(2))))
+            orientation = Orientation.NORMAL
+            if match.group("orientation"):
+                orientation = Orientation[match.group("orientation").upper()]
+            displays.append(Display(match.group("name"),
+                                    int(match.group("x")),
+                                    int(match.group("y")),
+                                    int(match.group("w")),
+                                    int(match.group("h")),
+                                    orientation))
 
     for i, display in enumerate(displays):
         print("{}: {}".format(i, display))
@@ -242,16 +250,28 @@ def get_user_input_in_range(input_range, message):
     return number
 
 
+class Orientation(Enum):
+    NORMAL = 1
+    LEFT = 2
+    INVERTED = 3
+    RIGHT = 4
+
+    def __str__(self):
+        return self.name
+
+
 class Display:
-    def __init__(self, name, x, y, width, height):
+    def __init__(self, name, x, y, width, height, orientation=Orientation.NORMAL):
         self.name = name
         self.x = x
         self.y = y
         self.width = width
         self.height = height
+        self.orientation = orientation
 
     def __str__(self):
-        return "{} {}x{} at ({}, {})".format(self.name, self.width, self.height, self.x, self.y)
+        return "{} {}x{} at ({}, {}), orientation: {}".format(
+            self.name, self.width, self.height, self.x, self.y, self.orientation)
 
 
 if __name__ == '__main__':
